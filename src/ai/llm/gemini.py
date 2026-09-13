@@ -1,12 +1,11 @@
-import os
-from dotenv import load_dotenv
+from src.ai.config import get_env
 from langchain_google_genai import ChatGoogleGenerativeAI
+from functools import lru_cache
 
-load_dotenv()
-
+@lru_cache(maxsize=1)
 def get_llm() -> ChatGoogleGenerativeAI:
-    model_name = os.getenv(
+    model_name = get_env(
         "LLM_MODEL",
         "gemini-3.5-flash-lite",
     )
-    return ChatGoogleGenerativeAI(model=model_name,temperature=0,)
+    return ChatGoogleGenerativeAI(model=model_name,temperature=0)
