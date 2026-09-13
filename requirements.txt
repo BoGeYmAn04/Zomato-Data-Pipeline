@@ -1,3 +1,8 @@
 boto3
 python-dotenv
 dbt-snowflake
+langchain 
+langchain-google-genai 
+pydantic
+snowflake-connector-python
+pytest
