@@ -1,6 +1,8 @@
 import os
 import snowflake.connector
-from src.ai.config import get_env
+from src.ai.config import get_env,get_int
+from decimal import Decimal
+from datetime import date, datetime
 
 def get_connection():
     return snowflake.connector.connect(
@@ -116,6 +118,48 @@ def save_rag_index_state(states: list[tuple[str, str, str]],):
     except Exception:
         conn.rollback()
         raise
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_text_to_sql_connection():
+    return snowflake.connector.connect(
+        account=get_env("SNOWFLAKE_ACCOUNT", required=True),
+        user=get_env("SNOWFLAKE_USER", required=True),
+        password=get_env("SNOWFLAKE_PASSWORD", required=True),
+        warehouse=get_env("SNOWFLAKE_WAREHOUSE", "ZOMATO_WH"),
+        database=get_env("SQL_ALLOWED_DATABASE", "ZOMATO"),
+        schema=get_env("SQL_ALLOWED_SCHEMA", "MARTS"),
+        role=get_env("SNOWFLAKE_SQL_ROLE", "TEXT_TO_SQL_ROLE"),
+        session_parameters={
+            "QUERY_TAG": "zomato_text_to_sql",
+            "STATEMENT_TIMEOUT_IN_SECONDS": get_int("SQL_STATEMENT_TIMEOUT_SECONDS", 30),
+        },
+    )
+
+def _json_safe_value(value):
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+def execute_text_to_sql_query(sql: str):
+    max_rows = get_int("SQL_MAX_RESULT_ROWS", 200)
+    conn = get_text_to_sql_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql)
+        if cursor.description is None:
+            return {"columns": [], "rows": [], "truncated": False}
+        columns = [column[0] for column in cursor.description]
+        fetched_rows = cursor.fetchmany(max_rows + 1)
+        truncated = len(fetched_rows) > max_rows
+        rows = [[_json_safe_value(value) for value in row]
+                for row in fetched_rows[:max_rows]]
+        return {"columns": columns, "rows": rows, "truncated": truncated}
     finally:
         cursor.close()
         conn.close()

@@ -1,3 +1,4 @@
+from typing import Any
 from pydantic import BaseModel, Field
 
 class RagChatRequest(BaseModel):
@@ -17,3 +18,18 @@ class RagSource(BaseModel):
 class RagChatResponse(BaseModel):
     answer: str
     sources: list[RagSource]
+
+
+class TextToSQLRequest(BaseModel):
+    question: str = Field(min_length=2,max_length=1000,description="Natural-language analytics question.")
+
+class TextToSQLResponse(BaseModel):
+    question: str
+    answer: str
+    sql: str | None = None
+    explanation: str | None = None
+    columns: list[str]
+    rows: list[list[Any]]
+    tables_used: list[str]
+    repaired: bool
+    truncated: bool

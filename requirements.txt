@@ -10,3 +10,4 @@ pydantic
 snowflake-connector-python
 pytest
 uvicorn[standard]
+sqlglot
