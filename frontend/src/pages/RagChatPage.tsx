@@ -24,7 +24,11 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
-export function RagChatPage() {
+interface RagChatPageProps {
+  onNavigateSql: () => void
+}
+
+export function RagChatPage({ onNavigateSql }: RagChatPageProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(false)
@@ -89,12 +93,13 @@ export function RagChatPage() {
               Review RAG Chat
             </button>
             <button
-              disabled
-              className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-600"
+              type="button"
+              onClick={onNavigateSql}
+              className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-zinc-500 transition hover:bg-zinc-900 hover:text-zinc-300"
             >
               <TerminalSquare className="size-4" />
               Text to SQL
-              <Badge className="ml-auto border-zinc-800 bg-zinc-900 text-[9px] text-zinc-600">Soon</Badge>
+              <Badge className="ml-auto border-emerald-500/20 bg-emerald-500/10 text-[9px] text-emerald-300">Live</Badge>
             </button>
           </div>
 
