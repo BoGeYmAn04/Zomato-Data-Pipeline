@@ -1,37 +1,63 @@
 # Local Airflow 3.x (LocalExecutor) on Docker.
-# Airflow 3 differences vs 2.x: webserver -> api-server, a separate dag-processor,
-# and the FAB auth manager for classic admin/admin login.
-#   cp .env.example .env   # fill creds
-#   docker compose build && docker compose up -d   # UI: http://localhost:8080 (admin/admin)
+#
+# Airflow 3:
+# - webserver -> api-server
+# - separate dag-processor
+# - FAB auth manager for classic admin login
+#
+# Start:
+#   docker compose build
+#   docker compose up -d
+#
+# UI:
+#   http://localhost:8080
+
+
 x-airflow-common: &airflow-common
   build: .
-  environment: &airflow-env
+  environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
-    AIRFLOW__CORE__FERNET_KEY: ''
-    # Airflow 3 signs inter-component (execution API) calls with this JWT secret:
-    AIRFLOW__API_AUTH__JWT_SECRET: 'change-me-please-a-random-secret'
-    # CRITICAL in multi-container Airflow 3: tasks reach the Execution API by the api-server's
-    # SERVICE NAME, not localhost. Without this, tasks die → "state mismatch ... failed".
-    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://apiserver:8080/execution/'
-    # dbt + the AI task read these:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+      postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__AUTH_MANAGER: >-
+      airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__CORE__FERNET_KEY: ""
+    AIRFLOW__API_AUTH__JWT_SECRET: >-
+      change-me-please-a-random-secret
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: >-
+      http://apiserver:8080/execution/
+    PYTHONPATH: /opt/airflow
     SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT}
     SNOWFLAKE_USER: ${SNOWFLAKE_USER}
     SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD}
-    OPENAI_API_KEY: ${OPENAI_API_KEY}
-    SAMPLE_N: ${SAMPLE_N:-5}
-    AIRFLOW_CONN_SNOWFLAKE_DEFAULT: '{"conn_type":"snowflake","login":"${SNOWFLAKE_USER}","password":"${SNOWFLAKE_PASSWORD}","schema":"RAW","extra":{"account":"${SNOWFLAKE_ACCOUNT}","warehouse":"ZOMATO_WH","database":"ZOMATO","role":"DBT_ROLE"}}'
+    SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-ZOMATO_WH}
+    SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-ZOMATO}
+    SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE:-DBT_ROLE}
+    GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+    LLM_MODEL: ${LLM_MODEL:-gemini-3.5-flash-lite}
+    ENRICH_BATCH_SIZE: ${ENRICH_BATCH_SIZE:-5}
+    ENRICH_MAX_PER_RUN: ${ENRICH_MAX_PER_RUN:-20}
+    EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
+    EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+    CHROMA_API_KEY: ${CHROMA_API_KEY}
+    CHROMA_TENANT: ${CHROMA_TENANT}
+    CHROMA_DATABASE: ${CHROMA_DATABASE}
+    CHROMA_COLLECTION: ${CHROMA_COLLECTION:-zomato_reviews_v1}
+    RAG_INDEX_BATCH_SIZE: ${RAG_INDEX_BATCH_SIZE:-20}
+    RAG_MAX_PER_RUN: ${RAG_MAX_PER_RUN:-20}
+    AIRFLOW_CONN_SNOWFLAKE_DEFAULT: >-
+      {"conn_type":"snowflake","login":"${SNOWFLAKE_USER}","password":"${SNOWFLAKE_PASSWORD}","schema":"RAW","extra":{"account":"${SNOWFLAKE_ACCOUNT}","warehouse":"${SNOWFLAKE_WAREHOUSE:-ZOMATO_WH}","database":"${SNOWFLAKE_DATABASE:-ZOMATO}","role":"${SNOWFLAKE_ROLE:-DBT_ROLE}"}}
+
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
-    - ../zomato_dbt:/opt/airflow/dbt/zomato       # your dbt project
-    - ../ai:/opt/airflow/ai                       # the enrich_reviews.py script
+    - ../zomato_dbt:/opt/airflow/dbt/zomato
+    - ../src:/opt/airflow/src
+
   depends_on:
     postgres:
       condition: service_healthy
-
 services:
   postgres:
     image: postgres:15
@@ -39,26 +65,40 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
-    volumes: [pgdata:/var/lib/postgresql/data]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test:
+        - CMD
+        - pg_isready
+        - -U
+        - airflow
       interval: 5s
+      timeout: 5s
       retries: 5
-
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
     command:
       - -c
-      - airflow db migrate && airflow users create --username admin --password admin --firstname a --lastname b --role Admin --email admin@example.com
+      - >
+        airflow db migrate &&
+        airflow users create
+        --username admin
+        --password admin
+        --firstname a
+        --lastname b
+        --role Admin
+        --email admin@example.com
     depends_on:
       postgres:
         condition: service_healthy
 
   apiserver:
     <<: *airflow-common
-    command: api-server          # Airflow 3: replaces `webserver`
-    ports: ["8080:8080"]
+    command: api-server
+    ports:
+      - "8080:8080"
     restart: always
     depends_on:
       airflow-init:
@@ -69,12 +109,14 @@ services:
     command: scheduler
     restart: always
     depends_on:
+      postgres:
+        condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
-
+        
   dag-processor:
     <<: *airflow-common
-    command: dag-processor       # Airflow 3: DAG parsing is its own component
+    command: dag-processor
     restart: always
     depends_on:
       airflow-init:
